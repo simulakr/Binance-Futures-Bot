@@ -9,7 +9,7 @@ BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 TESTNET            = os.getenv("TESTNET", "false").lower() == "true"
 
 # ─── Semboller & Zaman Aralığı ────────────────────────────────────────────────
-SYMBOLS  = [ "BTCUSDC", "ETHUSDC", "SOLUSDT", "XRPUSDT", "DOGEUSDT"] #"BNBUSDT"
+SYMBOLS  = [ "ETHUSDC", "SOLUSDT", "XRPUSDT", "DOGEUSDT"] #"BTCUSDC", "BNBUSDT"
 INTERVAL = "15m"
 
 # ─── Percent ATR Filtreleri ───────────────────────────────────────────────────
