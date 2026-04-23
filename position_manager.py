@@ -326,8 +326,9 @@ class PositionManager:
     def _calculate_quantity(self, symbol: str, atr_value: float) -> str:
         cfg       = SYMBOL_SETTINGS.get(symbol, {})
         risk      = cfg.get("risk", DEFAULT_RISK_USDT)
+        leverage  = cfg.get("leverage", DEFAULT_LEVERAGE)
         precision = QUANTITY_PRECISION.get(symbol, 2)
-        raw_qty   = risk / (_SL_MULT * atr_value)
+        raw_qty   = (risk * leverage) / (_SL_MULT * atr_value)
         qty       = round(raw_qty, precision)
         logger.info("%s pozisyon büyüklüğü: %s (risk=$%s)", symbol, qty, risk)
         return str(qty)
