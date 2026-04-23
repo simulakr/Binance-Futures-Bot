@@ -34,10 +34,11 @@ class TradingBot:
     # ─── Hesap Kurulumu ───────────────────────────────────────────────────────
 
     def _initialize_account(self) -> None:
-        """Her sembol için kaldıraç ayarlar."""
+        """Her sembol için margin tipi ve kaldıraç ayarlar."""
         for symbol in self.symbols:
             leverage = SYMBOL_SETTINGS.get(symbol, {}).get("leverage", DEFAULT_LEVERAGE)
-            self.client.set_leverage(symbol, leverage)
+            self.client.set_margin_type(symbol, "ISOLATED")  # önce margin tipi
+            self.client.set_leverage(symbol, leverage)        # sonra kaldıraç
 
     # ─── Zamanlama ────────────────────────────────────────────────────────────
 
