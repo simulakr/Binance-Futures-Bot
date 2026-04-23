@@ -66,43 +66,38 @@ class TradingBot:
         return True
     
     def _wait_until_next_candle(self) -> None:
-        """
-        Binance sunucu saatiyle 15 dakikalık mum kapanışını bekler.
-        Hedef: XX:14:59, XX:29:59, XX:44:59, XX:59:59
-        """
         try:
             server_ms   = self.client.get_server_time_ms()
             current     = datetime.datetime.fromtimestamp(server_ms / 1000, tz=datetime.timezone.utc)
             minute      = current.minute
-
-            # Bir sonraki çeyrek dakikayı bul
-            for target in [14, 29, 44, 59]:
-                if minute < target:
-                    target_minute = target
+    
+            for target in [15, 30, 45, 0]:
+                if target == 0:
+                    target_time = current.replace(minute=0, second=2, microsecond=0) + datetime.timedelta(hours=1)
                     break
-            else:
-                target_minute = 14  # Bir sonraki saatin ilk çeyreği
-
-            target_time = current.replace(minute=target_minute, second=59, microsecond=0)
+                if minute < target:
+                    target_time = current.replace(minute=target, second=2, microsecond=0)
+                    break
+    
             if target_time <= current:
                 target_time += datetime.timedelta(hours=1)
-
+    
             wait_seconds = (target_time - current).total_seconds()
-
+    
             logger.info(
                 "Bekleniyor | Şu an: %s | Hedef: %s | Süre: %.1fs",
                 current.strftime("%H:%M:%S"),
                 target_time.strftime("%H:%M:%S"),
                 wait_seconds,
             )
-
+    
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
             else:
                 time.sleep(1)
-
+    
             logger.info("Yeni mum başladı — veriler çekiliyor")
-
+    
         except Exception as exc:
             logger.error("Zamanlama hatası: %s", exc)
             time.sleep(60)
@@ -110,21 +105,26 @@ class TradingBot:
     # ─── Veri & Sinyal ────────────────────────────────────────────────────────
 
     def _fetch_market_data(self) -> Dict[str, Optional[Dict]]:
-        """Tüm semboller için OHLCV + indikatör hesaplar."""
         all_ohlcv = self.client.get_multiple_ohlcv(self.symbols, self.interval)
+        now       = pd.Timestamp.utcnow()
         results   = {}
-
+    
         for symbol, df in all_ohlcv.items():
             if df is None or df.empty:
                 results[symbol] = None
                 continue
             try:
+                df = df[df.index < now]  # kapanmamış mumu at
+                if df.empty:
+                    logger.warning("%s filtre sonrası veri kalmadı", symbol)
+                    results[symbol] = None
+                    continue
                 df = calculate_indicators(df, symbol)
                 results[symbol] = df.iloc[-1].to_dict()
             except Exception as exc:
                 logger.error("%s indikatör hesaplama hatası: %s", symbol, exc)
                 results[symbol] = None
-
+    
         return results
 
     def _generate_signals(self, all_data):
