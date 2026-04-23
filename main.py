@@ -2,6 +2,7 @@ import logging
 import time
 import datetime
 from typing import Dict, Optional
+import pandas as pd
 
 from config import SYMBOLS, INTERVAL, SYMBOL_SETTINGS, DEFAULT_LEVERAGE
 from exchange import BinanceFuturesClient
