@@ -8,17 +8,6 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 # ─── Temel Göstergeler ────────────────────────────────────────────────────────
-
-def calculate_rsi(df: pd.DataFrame, window: int = 14, col: str = "close") -> pd.Series:
-    delta    = df[col].diff()
-    gain     = delta.where(delta > 0, 0.0)
-    loss     = -delta.where(delta < 0, 0.0)
-    avg_gain = gain.rolling(window).mean()
-    avg_loss = loss.rolling(window).mean()
-    rs       = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-
 def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
     high  = df["high"]
     low   = df["low"]
@@ -26,49 +15,6 @@ def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
     prev  = close.shift(1)
     tr    = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1 / window, adjust=False).mean()
-
-
-def calculate_sma(df: pd.DataFrame, window: int, col: str = "close") -> pd.Series:
-    return df[col].rolling(window).mean()
-
-
-def calculate_donchian(df: pd.DataFrame, window: int) -> pd.DataFrame:
-    upper  = df["high"].rolling(window).max()
-    lower  = df["low"].rolling(window).min()
-    middle = (upper + lower) / 2
-    return pd.DataFrame({"upper": upper, "lower": lower, "middle": middle})
-
-
-def calculate_nadaraya_watson(
-    df:         pd.DataFrame,
-    bandwidth:  float = 8.0,
-    multiplier: float = 3.0,
-    col:        str   = "close",
-    window:     int   = 50,
-) -> pd.DataFrame:
-    n      = len(df)
-    src    = df[col].values
-
-    def gauss(x, h):
-        return np.exp(-(x ** 2) / (h * h * 2))
-
-    weights     = np.array([gauss(i, bandwidth) for i in range(window)])
-    weights_sum = weights.sum()
-
-    nw_mid   = np.full(n, np.nan)
-    nw_upper = np.full(n, np.nan)
-    nw_lower = np.full(n, np.nan)
-
-    for i in range(window - 1, n):
-        wsum      = np.dot(src[i - window + 1 : i + 1], weights[::-1])
-        mid       = wsum / weights_sum
-        nw_mid[i] = mid
-        mae       = np.mean(np.abs(src[i - window + 1 : i + 1] - nw_mid[i - window + 1 : i + 1])) * multiplier
-        nw_upper[i] = mid + mae
-        nw_lower[i] = mid - mae
-
-    return pd.DataFrame({"nw": nw_mid, "nw_upper": nw_upper, "nw_lower": nw_lower}, index=df.index)
-
 
 # ─── Z Göstergesi ─────────────────────────────────────────────────────────────
 
@@ -81,7 +27,6 @@ def calculate_z(df: pd.DataFrame, symbol: str) -> pd.Series:
         np.maximum(df["close"] * pct_min / 100, mult * df["atr"]),
         df["close"] * pct_max / 100,
     )
-
 
 # ─── ATR ZigZag ───────────────────────────────────────────────────────────────
 
@@ -221,39 +166,19 @@ def calculate_indicators(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     atr_low, atr_high = ATR_RANGES[symbol]
 
     # Temel göstergeler
-    df["rsi"]     = calculate_rsi(df)
     df["atr"]     = calculate_atr(df)
     df["pct_atr"] = (df["atr"] / df["close"]) * 100
 
     df["z"]     = calculate_z(df, symbol)
     df["pct_z"] = (df["z"] / df["close"]) * 100
 
-    # Donchian Kanalları
-    for w in [20, 50]:
-        dc = calculate_donchian(df, w)
-        df[f"dc_upper_{w}"]          = dc["upper"]
-        df[f"dc_lower_{w}"]          = dc["lower"]
-        df[f"dc_middle_{w}"]         = dc["middle"]
-        df[f"dc_position_ratio_{w}"] = (df["close"] - dc["lower"]) / (dc["upper"] - dc["lower"]) * 100
-        df[f"dc_breakout_{w}"]       = df["high"] > dc["upper"]
-        df[f"dc_breakdown_{w}"]      = df["low"]  < dc["lower"]
-
-    # SMA & Trend
-    df["sma_50"]       = calculate_sma(df, 50)
-    df["sma_200"]      = calculate_sma(df, 200)
-    df["trend_50_200"] = np.where(df["sma_50"] > df["sma_200"], "uptrend", "downtrend")
-
-    # Nadaraya-Watson Envelope
-    nw = calculate_nadaraya_watson(df)
-    df[["nw", "nw_upper", "nw_lower"]] = nw
-
     # ATR ZigZag (_2x ve _3x)
     df = calculate_atr_zigzag(df, atr_col="z", atr_mult=1.25, suffix="_2x")
-    df = calculate_atr_zigzag(df, atr_col="z", atr_mult=3.0,  suffix="_3x")
+    #df = calculate_atr_zigzag(df, atr_col="z", atr_mult=3.0,  suffix="_3x")
 
     # Market Yapısı
     df = add_market_structure(df, "_2x")
-    df = add_market_structure(df, "_3x")
+    #df = add_market_structure(df, "_3x")
 
     # ATR filtre maskesi
     atr_ok = (atr_low < df["pct_atr"]) & (df["pct_atr"] < atr_high)
@@ -262,49 +187,6 @@ def calculate_indicators(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
     long_shift_ok  = _build_shift_ok(df, "close", "high_pivot_ff_2x", "long",  n=5)
     short_shift_ok = _build_shift_ok(df, "close", "low_pivot_ff_2x",  "short", n=5)
-
-    # ─── Pivot Go Sinyalleri ──────────────────────────────────────────────────
-
-    df["pivot_go_up_2x"]   = False
-    df["pivot_go_down_2x"] = False
-
-    df.loc[
-        df["low_confirmed_2x"].astype(bool) &
-        (df["low_structure_2x"]  == "HL") &
-        (df["high_structure_2x"] == "HH") &
-        (df["trend_50_200"]      == "uptrend") &
-        (df["close"] < df["nw_upper"]) & atr_ok,
-        "pivot_go_up_2x",
-    ] = True
-
-    df.loc[
-        df["high_confirmed_2x"].astype(bool) &
-        (df["high_structure_2x"] == "LH") &
-        (df["low_structure_2x"]  == "LL") &
-        (df["trend_50_200"]      == "downtrend") &
-        (df["close"] > df["nw_lower"]) & atr_ok,
-        "pivot_go_down_2x",
-    ] = True
-
-    # _3x: sadece market structure, sinyal yok
-    df["pivot_go_up_3x"]   = False
-    df["pivot_go_down_3x"] = False
-
-    df.loc[
-        df["low_confirmed_3x"].astype(bool) &
-        (df["low_structure_3x"]  == "HL") &
-        (df["high_structure_3x"] == "HH") &
-        (df["close"] < df["nw_upper"]) & atr_ok,
-        "pivot_go_up_3x",
-    ] = True
-
-    df.loc[
-        df["high_confirmed_3x"].astype(bool) &
-        (df["high_structure_3x"] == "LH") &
-        (df["low_structure_3x"]  == "LL") &
-        (df["close"] > df["nw_lower"]) & atr_ok,
-        "pivot_go_down_3x",
-    ] = True
 
     # ─── pivot_go_breakout (_2x) ──────────────────────────────────────────────
     # Yapı: HL low + high_structure != HH + pivot geçişi
@@ -348,28 +230,6 @@ def calculate_indicators(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         (df["close"] < df["low_pivot_ff_2x"]) &
         atr_ok & (~df["pivot_go_breakdown_2x"]),
         "pivot_go_breakdown_2x",
-    ] = True
-
-    # _3x
-    df["pivot_go_breakout_3x"]  = False
-    df["pivot_go_breakdown_3x"] = False
-
-    df.loc[
-        df["low_confirmed_3x"].astype(bool) &
-        (df["low_structure_3x"]  == "HL") &
-        (df["high_structure_3x"] != "HH") &
-        df["high_pivot_ff_3x"].notna() &
-        (df["close"] > df["high_pivot_ff_3x"]) & atr_ok,
-        "pivot_go_breakout_3x",
-    ] = True
-
-    df.loc[
-        df["high_confirmed_3x"].astype(bool) &
-        (df["high_structure_3x"] == "LH") &
-        (df["low_structure_3x"]  != "LL") &
-        df["low_pivot_ff_3x"].notna() &
-        (df["close"] < df["low_pivot_ff_3x"]) & atr_ok,
-        "pivot_go_breakdown_3x",
     ] = True
 
     # ─── pivot_goup_breakout (_2x) ────────────────────────────────────────────
